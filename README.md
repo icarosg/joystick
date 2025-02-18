@@ -57,4 +57,4 @@ O projeto está **finalizado** e **todas as funcionalidades estão implementadas
    
 ## **Demonstração**
 
-Assista ao vídeo demonstrativo no seguinte link: [Vídeo da solução]()
+Assista ao vídeo demonstrativo no seguinte link: [Vídeo da solução](https://youtu.be/eybP0K_mJGU)
