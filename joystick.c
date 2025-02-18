@@ -28,16 +28,13 @@
 
 // variáveis globais
 ssd1306_t ssd; // inicializa a estrutura do display
-char received_char = '\0';
-char estadoLED[15];
 volatile uint32_t last_interrupt_A_time = 0;
-volatile uint32_t last_interrupt_B_time = 0;
 
-bool border_state;    // estado da borda no display
-bool green_led_state; // estado do LED verde
-bool pwm_led_state;   // estado dos LEDs PWM
-uint16_t center_x;    // posição central do eixo X do joystick
-uint16_t center_y;    // posição central do eixo Y do joystick
+bool border_state;         // estado da borda no display
+bool green_led_state;      // estado do LED verde
+bool pwm_led_state = true; // estado dos LEDs PWM
+uint16_t center_x;         // posição central do eixo X do joystick
+uint16_t center_y;         // posição central do eixo Y do joystick
 
 // variável para controlar o debounce
 absolute_time_t last_press_time;
@@ -46,31 +43,33 @@ absolute_time_t last_press_time;
 void init_hardware(void);
 static void gpio_irq_handler(uint gpio, uint32_t events);
 void atualizarDisplay(uint16_t x, uint16_t y);
+void pwm_init_gpio(uint pin);
+void calibrate_joystick();
+int16_t adjust_joystick_value(int16_t raw, int16_t center);
 
 void init_hardware(void)
 {
-  // configura botao A na GPIO 5 com pull-up e interrupção na borda de descida
-  gpio_init(5);
-  gpio_set_dir(5, GPIO_IN);
-  gpio_pull_up(5);
+  adc_init();           // Inicializa o ADC
+  adc_gpio_init(JOY_X); // Configura ADC no pino X do joystick
+  adc_gpio_init(JOY_Y); // Configura ADC no pino Y do joystick
 
-  // configura botão B na GPIO 6 com pull-up e interrupção na borda de descida
-  gpio_init(6);
-  gpio_set_dir(6, GPIO_IN);
-  gpio_pull_up(6);
+  gpio_init(BTN_JOY);             // Inicializa botão do joystick
+  gpio_set_dir(BTN_JOY, GPIO_IN); // Define como entrada
+  gpio_pull_up(BTN_JOY);          // Habilita pull-up interno
 
-  gpio_init(LED_R);              // inicializa LED_R como saída
-  gpio_set_dir(LED_R, GPIO_OUT); // configura LED_R como saída
+  gpio_init(BTN_ACTION);             // Inicializa botão de ação
+  gpio_set_dir(BTN_ACTION, GPIO_IN); // Define como entrada
+  gpio_pull_up(BTN_ACTION);          // Habilita pull-up interno
 
-  gpio_init(LED_G);              // inicializa LED_G como saída
-  gpio_set_dir(LED_G, GPIO_OUT); // configura LED_G como saída
-
-  gpio_init(LED_B);              // inicializa LED_B como saída
-  gpio_set_dir(LED_B, GPIO_OUT); // configura LED_B como saída
+  // Inicialização dos LEDs
+  pwm_init_gpio(LED_R);
+  pwm_init_gpio(LED_B);
+  gpio_init(LED_G);
+  gpio_set_dir(LED_G, GPIO_OUT);
+  gpio_put(LED_G, false);
 
   // I2C Initialisation. Using it at 400Khz.
   i2c_init(I2C_PORT, 400 * 1000);
-
   gpio_set_function(I2C_SDA, GPIO_FUNC_I2C);                    // set the GPIO pin function to I2C
   gpio_set_function(I2C_SCL, GPIO_FUNC_I2C);                    // set the GPIO pin function to I2C
   gpio_pull_up(I2C_SDA);                                        // pull up the data line
@@ -96,16 +95,26 @@ void gpio_irq_handler(uint gpio, uint32_t events)
 {
   uint32_t current_time = to_ms_since_boot(get_absolute_time());
 
-  if (gpio == 5)
+  if (gpio == BTN_JOY)
   {
     if (current_time - last_interrupt_A_time > DEBOUNCE_DELAY_MS)
     {
       last_interrupt_A_time = current_time;
+      green_led_state = !green_led_state; // Alterna o estado do LED verde
+      gpio_put(LED_G, green_led_state);   // Atualiza o LED verde
+      printf("\nEstado do LED verde alternado\n%s \n", green_led_state ? "LED verde on" : "LED verde off");
 
-      gpio_put(LED_B, 0);                // desliga o led azul
-      gpio_put(LED_G, !gpio_get(LED_G)); // alterna o estado do LED verde
-
-      printf("\nEstado do LED verde alternado\n%s \n", gpio_get(LED_G) ? "LED verde on" : "LED verde off");
+      // Alternar a borda do display
+      border_state = !border_state;
+    }
+  }
+  else if (gpio == BTN_ACTION)
+  {
+    if (current_time - last_interrupt_A_time > DEBOUNCE_DELAY_MS)
+    {
+      last_interrupt_A_time = current_time;
+      pwm_led_state = !pwm_led_state; // Alterna o estado do controle PWM dos LEDs
+      printf("\nEstado do PWM dos LEDs %s\n", pwm_led_state ? "Ativado" : "Desativado");
     }
   }
 }
@@ -150,6 +159,7 @@ void atualizarDisplay(uint16_t x, uint16_t y)
   int pos_x = ((4095 - x) * 52) / 4095; // calcula posição X do cursor
   int pos_y = (y * 113) / 4095;         // calcula posição Y do cursor
 
+  // Atualiza borda do display se necessário
   if (border_state)
   {
     ssd1306_rect(&ssd, 0, 0, 127, 63, 1, false);
@@ -157,7 +167,8 @@ void atualizarDisplay(uint16_t x, uint16_t y)
   }
 
   // ssd1306_rect(&ssd, 3, 3, 122, 58, cor, !cor);       // desenha um retângulo
-  ssd1306_draw_string(&ssd, "CEPEDI   TIC37", 8, 10); // desenha uma string
+  // ssd1306_draw_string(&ssd, "CEPEDI   TIC37", 8, 10); // desenha uma string
+
   ssd1306_rect(&ssd, pos_x, pos_y, 8, 8, 1, true);
   ssd1306_send_data(&ssd); // atualiza o display
 
@@ -170,7 +181,8 @@ int main()
   init_hardware();
   calibrate_joystick();
 
-  gpio_set_irq_enabled_with_callback(5, GPIO_IRQ_EDGE_FALL, true, &gpio_irq_handler);
+  gpio_set_irq_enabled_with_callback(BTN_JOY, GPIO_IRQ_EDGE_FALL, true, &gpio_irq_handler);
+  gpio_set_irq_enabled(BTN_ACTION, GPIO_IRQ_EDGE_FALL, true);
 
   // loop principal (as ações dos botões são tratadas via IRQ)
   while (true)
@@ -180,12 +192,14 @@ int main()
     adc_select_input(1);
     uint16_t y_raw = adc_read();
     printf("Joystick: X=%d, Y=%d\n", x_raw, y_raw);
+
+    // Controle dos LEDs com PWM
     if (pwm_led_state)
     {
       int16_t x_adj = adjust_joystick_value(x_raw, center_x);
       int16_t y_adj = adjust_joystick_value(y_raw, center_y);
-      pwm_set_gpio_level(LED_R, abs(y_adj) * 2);
-      pwm_set_gpio_level(LED_B, abs(x_adj) * 2);
+      pwm_set_gpio_level(LED_R, abs(y_adj) * 2); // LED vermelho
+      pwm_set_gpio_level(LED_B, abs(x_adj) * 2); // LED azul
     }
 
     atualizarDisplay(x_raw, y_raw);
