@@ -29,7 +29,7 @@ Todas as funcionalidades do projeto foram **implementadas com sucesso** e **todo
 1. **Clone o repositório:**
    ```bash
    git clone https://github.com/icarosg/joystick.git
-   cd DisplayBitjoystickDogLab
+   cd joystick
    ```
 
 ## **Demonstração**
