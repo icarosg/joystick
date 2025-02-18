@@ -30,22 +30,21 @@
 ssd1306_t ssd; // inicializa a estrutura do display
 volatile uint32_t last_interrupt_A_time = 0;
 
-bool border_state;         // estado da borda no display
-bool green_led_state;      // estado do LED verde
-bool pwm_led_state = true; // estado dos LEDs PWM
+bool estadoBorda;         // estado da borda no display
+bool estadoLEDG;      // estado do LED verde
+bool estado_pwm_led = true; // estado dos LEDs PWM
 uint16_t center_x;         // posição central do eixo X do joystick
 uint16_t center_y;         // posição central do eixo Y do joystick
 
-// variável para controlar o debounce
-absolute_time_t last_press_time;
+absolute_time_t last_press_time; // controlar o debounce
 
 // protótipos
 void init_hardware(void);
 static void gpio_irq_handler(uint gpio, uint32_t events);
 void atualizarDisplay(uint16_t x, uint16_t y);
 void pwm_init_gpio(uint pin);
-void calibrate_joystick();
-int16_t adjust_joystick_value(int16_t raw, int16_t center);
+void calibra_joystick();
+int16_t ajustar_valor_joystick(int16_t raw, int16_t center);
 
 void init_hardware(void)
 {
@@ -100,12 +99,12 @@ void gpio_irq_handler(uint gpio, uint32_t events)
     if (current_time - last_interrupt_A_time > DEBOUNCE_DELAY_MS)
     {
       last_interrupt_A_time = current_time;
-      green_led_state = !green_led_state; // Alterna o estado do LED verde
-      gpio_put(LED_G, green_led_state);   // Atualiza o LED verde
-      printf("\nEstado do LED verde alternado\n%s \n", green_led_state ? "LED verde on" : "LED verde off");
+      estadoLEDG = !estadoLEDG; // alterna o estado do LED verde
+      gpio_put(LED_G, estadoLEDG);   // atualiza o LED verde
+      printf("\nEstado do LED verde alternado\n%s \n", estadoLEDG ? "LED verde on" : "LED verde off");
 
-      // Alternar a borda do display
-      border_state = !border_state;
+      // alternar a borda do display
+      estadoBorda = !estadoBorda;
     }
   }
   else if (gpio == BTN_ACTION)
@@ -113,8 +112,8 @@ void gpio_irq_handler(uint gpio, uint32_t events)
     if (current_time - last_interrupt_A_time > DEBOUNCE_DELAY_MS)
     {
       last_interrupt_A_time = current_time;
-      pwm_led_state = !pwm_led_state; // Alterna o estado do controle PWM dos LEDs
-      printf("\nEstado do PWM dos LEDs %s\n", pwm_led_state ? "Ativado" : "Desativado");
+      estado_pwm_led = !estado_pwm_led; // Alterna o estado do controle PWM dos LEDs
+      printf("\nEstado do PWM dos LEDs %s\n", estado_pwm_led ? "Ativado" : "Desativado");
     }
   }
 }
@@ -129,7 +128,7 @@ void pwm_init_gpio(uint pin)
 }
 
 // realiza a calibração do joystick
-void calibrate_joystick()
+void calibra_joystick()
 {
   const int samples = 150;       // número de amostras para calibração
   uint32_t sum_x = 0, sum_y = 0; // variáveis para somar os valores lidos
@@ -146,7 +145,7 @@ void calibrate_joystick()
 }
 
 // ajusta o valor do joystick considerando a zona morta
-int16_t adjust_joystick_value(int16_t raw, int16_t center)
+int16_t ajustar_valor_joystick(int16_t raw, int16_t center)
 {
   int16_t diff = raw - center;               // calcula a diferença em relação ao centro
   return (abs(diff) < DEAD_ZONE) ? 0 : diff; // se dentro da zona morta, retorna 0
@@ -159,8 +158,8 @@ void atualizarDisplay(uint16_t x, uint16_t y)
   int pos_x = ((4095 - x) * 52) / 4095; // calcula posição X do cursor
   int pos_y = (y * 113) / 4095;         // calcula posição Y do cursor
 
-  // Atualiza borda do display se necessário
-  if (border_state)
+  // atualiza borda do display se necessário
+  if (estadoBorda)
   {
     ssd1306_rect(&ssd, 0, 0, 127, 63, 1, false);
     ssd1306_rect(&ssd, 2, 2, 123, 59, 1, false);
@@ -179,7 +178,7 @@ int main()
 {
   stdio_init_all();
   init_hardware();
-  calibrate_joystick();
+  calibra_joystick();
 
   gpio_set_irq_enabled_with_callback(BTN_JOY, GPIO_IRQ_EDGE_FALL, true, &gpio_irq_handler);
   gpio_set_irq_enabled(BTN_ACTION, GPIO_IRQ_EDGE_FALL, true);
@@ -187,17 +186,17 @@ int main()
   // loop principal (as ações dos botões são tratadas via IRQ)
   while (true)
   {
-    adc_select_input(0);
+    adc_select_input(0); // seleciona o ADC para eixo X. O pino 26 como entrada analógica
     uint16_t x_raw = adc_read();
-    adc_select_input(1);
+    adc_select_input(1); // seleciona o ADC para eixo Y. O pino 27 como entrada analógica
     uint16_t y_raw = adc_read();
     printf("Joystick: X=%d, Y=%d\n", x_raw, y_raw);
 
-    // Controle dos LEDs com PWM
-    if (pwm_led_state)
+    // controle dos LEDs com PWM
+    if (estado_pwm_led)
     {
-      int16_t x_adj = adjust_joystick_value(x_raw, center_x);
-      int16_t y_adj = adjust_joystick_value(y_raw, center_y);
+      int16_t x_adj = ajustar_valor_joystick(x_raw, center_x);
+      int16_t y_adj = ajustar_valor_joystick(y_raw, center_y);
       pwm_set_gpio_level(LED_R, abs(y_adj) * 2); // LED vermelho
       pwm_set_gpio_level(LED_B, abs(x_adj) * 2); // LED azul
     }
